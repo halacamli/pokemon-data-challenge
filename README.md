@@ -6,7 +6,7 @@ Two JSON sources are loaded raw, standardized into a common schema, validated, a
 
 ## Pipeline
 
-```mermaid id="8lfg4a"
+```mermaid
 flowchart LR
     A[Source A JSON] --> R[BigQuery Raw]
     B[Source B JSON] --> R
@@ -47,7 +47,9 @@ Checks include:
 
 The sources are standardized separately and combined into `stg_pokemon_consolidated`.
 
-I use `(pokemon_id, pokemon_name)` as the consolidation key. Overlapping rows are only deduplicated after checking that their attributes match.
+I use `(pokemon_id, pokemon_name)` as the consolidation key.
+
+I checked overlaps in `analyses/data_quality_checks.sql`: 28 keys appear in both sources and Source B has 2 extra duplicate rows. The overlapping records have identical attributes, so the model keeps one row per key. If a conflict appeared, the current model would keep the Source A row; in production this should be surfaced instead.
 
 `seen_in_source_a` and `seen_in_source_b` are kept for lineage.
 
@@ -55,17 +57,28 @@ I use `(pokemon_id, pokemon_name)` as the consolidation key. Overlapping rows ar
 
 - `pokemon_id` alone is not unique.
 - `(pokemon_id, pokemon_name)` is the consolidation key.
-- Overlapping rows are validated before deduplication.
+- Overlaps were checked during data exploration; on conflict the current model keeps Source A.
 - Missing `secondary_type` stays `NULL`.
 - Raw data stays unchanged; standardization happens in dbt.
 
 ## Tests
 
-dbt tests validate:
-- required fields are not null
-- `(pokemon_id, pokemon_name)` is unique after consolidation
+dbt tests validate required fields in the consolidated model.
+
+Additional source consistency and duplicate checks are available in `analyses/data_quality_checks.sql`.
 
 At this point, the requested staging layer is complete.
+
+## Production considerations
+
+The take-home uses local files and `WRITE_TRUNCATE`. In production, I would keep the same layers and change how data is ingested and orchestrated.
+
+- **Ingestion:** Land files in GCS and keep raw tables append-only with `source_file` and `loaded_at`. Skip files that have already been processed.
+- **Orchestration:** Run ingestion → `dbt build` with a scheduler such as Airflow / Cloud Composer. Stop downstream processing on load or test failures.
+- **Data quality:** Alert on test failures and surface conflicting records instead of silently resolving them by source priority. Malformed rows could be quarantined instead of failing the full batch.
+- **Scale:** Move the consolidated model from full rebuilds to incremental processing as volume grows.
+- **Reference data:** Refresh the PokéAPI reference independently rather than on every pipeline run.
+- **Access & deployment:** Use service accounts, separate dev/prod datasets, and run `dbt build` in CI before deployment.
 
 ---
 
@@ -73,7 +86,7 @@ At this point, the requested staging layer is complete.
 
 I added `pokemon_reporting` as a small downstream model to make the consolidated data easier to use for analysis.
 
-```mermaid id="j1b6om"
+```mermaid
 flowchart LR
     C[stg_pokemon_consolidated] --> F[pokemon_reporting]
     API[PokéAPI Reference] --> F
@@ -83,7 +96,7 @@ flowchart LR
 
 While exploring the consolidated data, I found names such as:
 
-```text id="xekqce"
+```text
 CharizardMega Charizard Y
 DeoxysAttack Forme
 PumpkabooSmall Size
@@ -93,7 +106,7 @@ The naming pattern was not reliable enough to separate the Pokémon name from th
 
 For the reporting layer, I added a minimal PokéAPI reference containing only `pokemon_id` and species name.
 
-```text id="w5gn0e"
+```text
 Charizard | Mega Charizard Y
 Deoxys    | Attack Forme
 Pumpkaboo | Small Size
@@ -120,13 +133,41 @@ The reporting layer also has its own tests:
 
 ## Running the project
 
-```bash id="r3fbq4"
+Before running the pipeline:
+
+1. Create the following BigQuery datasets in the **EU** location:
+   - `pokemon_raw`
+   - `pokemon_reference`
+
+2. Create `~/.dbt/profiles.yml`:
+
+```yaml
+dbt_pokemon:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: <your-gcp-project-id>
+      dataset: pokemon_staging
+      location: EU
+      threads: 4
+```
+
+3. Replace `pokemon-data-challenge` with your GCP project ID in:
+   - `data_pokemon/scripts/load_raw_data.py`
+   - `data_pokemon/scripts/fetch_pokemon_reference.py`
+   - `dbt_pokemon/models/_sources.yml`
+
+Then run:
+
+```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
 gcloud auth application-default login
-gcloud config set project pokemon-data-challenge
+gcloud config set project <your-gcp-project-id>
 
 python data_pokemon/scripts/load_raw_data.py
 python data_pokemon/scripts/fetch_pokemon_reference.py
@@ -136,16 +177,18 @@ dbt debug
 dbt build
 ```
 
-BigQuery datasets should use the **EU** location.
+The staged export (`data_pokemon/output/stg_pokemon_consolidated.csv`) was exported from `stg_pokemon_consolidated` in BigQuery.
 
 ## Project structure
 
-```text id="w09z8e"
+```text
 pokemon-data-challenge/
 ├── data_pokemon/
 │   ├── data/
 │   │   └── reference/
 │   │       └── pokemon_reference.json
+│   ├── output/
+│   │   └── stg_pokemon_consolidated.csv
 │   ├── raw/
 │   │   ├── pokemon_source_a.json
 │   │   └── pokemon_source_b.json
@@ -160,21 +203,17 @@ pokemon-data-challenge/
 │   │
 │   ├── models/
 │   │   ├── _sources.yml
-│   │   │
 │   │   ├── staging/
 │   │   │   ├── _staging.yml
 │   │   │   ├── stg_pokemon_source_a.sql
 │   │   │   ├── stg_pokemon_source_b.sql
 │   │   │   └── stg_pokemon_consolidated.sql
-│   │   │
 │   │   └── reporting/
 │   │       ├── _reporting.yml
 │   │       └── pokemon_reporting.sql
 │   │
 │   ├── tests/
-│   │   ├── unique_consolidated_pokemon.sql
 │   │   └── unique_reporting_pokemon_form.sql
-│   │
 │   └── dbt_project.yml
 │
 ├── requirements.txt
@@ -183,7 +222,7 @@ pokemon-data-challenge/
 
 A quick map:
 
-- `data_pokemon/` — ingestion and external reference
+- `data_pokemon/` — ingestion, staged export and external reference
 - `analyses/` — profiling and exploratory data quality checks
 - `staging/` — source standardization and consolidation
 - `reporting/` — optional analytics-ready model
