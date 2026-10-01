@@ -1,0 +1,16 @@
+name: 'dbt_pokemon'
+version: '1.0.0'
+
+profile: 'dbt_pokemon'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  dbt_pokemon:
+    +materialized: view

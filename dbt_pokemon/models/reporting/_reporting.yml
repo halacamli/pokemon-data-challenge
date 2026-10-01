@@ -1,0 +1,24 @@
+version: 2
+
+models:
+  - name: pokemon_reporting
+    description: >
+      Final analytics-ready Pokemon dataset at one row per
+      Pokemon variant/form.
+
+    columns:
+      - name: pokemon_id
+        description: "Pokemon species identifier."
+        data_tests:
+          - not_null
+
+      - name: pokemon_name
+        description: "Human-readable Pokemon species name."
+        data_tests:
+          - not_null
+
+      - name: pokemon_form
+        description: >
+          Pokemon variant or form. Default represents the base form.
+        data_tests:
+          - not_null

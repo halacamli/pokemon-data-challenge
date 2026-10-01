@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: stg_pokemon_source_a
+    description: "Standardizes Source A into the canonical Pokemon schema."
+
+  - name: stg_pokemon_source_b
+    description: "Standardizes Source B into the canonical Pokemon schema."
+
+  - name: stg_pokemon_consolidated
+    description: >
+      Combines and deduplicates the staged sources.
+      The model grain is one row per (pokemon_id, pokemon_name).
+
+    columns:
+      - name: pokemon_id
+        data_tests:
+          - not_null
+
+      - name: pokemon_name
+        data_tests:
+          - not_null

@@ -1,0 +1,17 @@
+version: 2
+
+sources:
+  - name: pokemon_raw
+    database: pokemon-data-challenge
+    schema: pokemon_raw
+
+    tables:
+      - name: source_a
+      - name: source_b
+
+  - name: pokemon_reference
+    database: pokemon-data-challenge
+    schema: pokemon_reference
+
+    tables:
+      - name: pokemon_species
