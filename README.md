@@ -60,6 +60,9 @@ I checked overlaps in `analyses/data_quality_checks.sql`: 28 keys appear in both
 - Overlaps were checked during data exploration; on conflict the current model keeps Source A.
 - Missing `secondary_type` stays `NULL`.
 - Raw data stays unchanged; standardization happens in dbt.
+- BigQuery is more than this data needs; a local setup would work at this size. I chose it for convenience: easy to query, inspect results and export the staged table.
+- I kept ingestion intentionally thin: Python loads the source files without applying transformations, while dbt owns standardization, deduplication and consolidation. This keeps the raw inputs traceable and the transformation logic in one place.
+- Given the small, static input files, I kept the loading process simple rather than adding incremental processing. For recurring or larger production workloads, I would track ingestion state and use incremental models where appropriate.
 
 ## Tests
 
@@ -74,7 +77,7 @@ At this point, the requested staging layer is complete.
 The take-home uses local files and `WRITE_TRUNCATE`. In production, I would keep the same layers and change how data is ingested and orchestrated.
 
 - **Ingestion:** Land files in GCS and keep raw tables append-only with `source_file` and `loaded_at`. Skip files that have already been processed.
-- **Orchestration:** Run ingestion → `dbt build` with a scheduler such as Airflow / Cloud Composer. Stop downstream processing on load or test failures.
+- **Orchestration:** Run ingestion → `dbt build` with a scheduler such as Airflow. Stop downstream processing on load or test failures.
 - **Data quality:** Alert on test failures and surface conflicting records instead of silently resolving them by source priority. Malformed rows could be quarantined instead of failing the full batch.
 - **Scale:** Move the consolidated model from full rebuilds to incremental processing as volume grows.
 - **Reference data:** Refresh the PokéAPI reference independently rather than on every pipeline run.
